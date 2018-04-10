@@ -1,25 +1,149 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
 output: 
-  html_document:
-    keep_md: true
+html_document:
+keep_md: true
 ---
 
+```{r, echo=TRUE}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(dplyr, ggplot2, tidyr, hexbin, timeDate)
+```
 
 ## Loading and preprocessing the data
 
+```{r, echo=TRUE}
 
+df <- read.csv('activity.csv')
+head(df)
+
+df$date <- as.Date(df$date)
+
+str(df)
+```
 
 ## What is mean total number of steps taken per day?
 
+```{r, echo=TRUE}
+df_groupedbyday <- df %>% group_by(date) %>% summarise(steps_perday = sum(steps))
+head(df_groupedbyday)
 
+ggplot(df_groupedbyday, aes(x = steps_perday)) + geom_histogram(binwidth = 1000) + 
+  labs(title = "Histogram of Steps Taken per Day", x = "Number of Steps per Day", 
+       y = "Number of times in a day (counts)")
+
+mean(df_groupedbyday$steps_perday, na.rm = TRUE)
+median(df_groupedbyday$steps_perday, na.rm = TRUE)
+```
 
 ## What is the average daily activity pattern?
 
+```{r, echo=TRUE}
+df_avgbyint <- df %>% group_by(interval) %>% 
+  summarise(mean_steps_perint = mean(steps, na.rm = TRUE))
 
+p <- ggplot(df_avgbyint, aes(x = interval, y = mean_steps_perint)) +
+  geom_line() + labs(title = "Average Daily Activity Pattern", x = "Interval", 
+                     y = "Number of steps averaged over all days")
+
+print(p)
+
+df_avgbyint[which.max(df_avgbyint$mean_steps_perint),]
+```
 
 ## Imputing missing values
 
+```{r, echo=TRUE}
+sum(is.na(df$steps))
+```
+
+Compare the median and mean for each 5 minute interval:
+
+```{r, echo=TRUE}
+
+count_na <- function(x) {sum(is.na(x))}
+
+df_nacount <- df %>% group_by(interval) %>%
+  summarise(na_count=count_na(steps))
+
+head(df_nacount)
+
+df_meanmedian <- df %>% group_by(interval) %>% 
+  summarise_at(vars(steps), funs(mean, median), na.rm = TRUE)
+
+head(df_meanmedian)
+
+df_measures <- left_join(df_meanmedian, df_nacount, by = "interval") %>%
+  gather(key = measure, value = value, -interval)
+
+q <- ggplot(df_measures, aes(x = interval, y = value, colour = measure)) +
+  geom_line()
+
+print(q)
+
+length(unique(df$date))
+length(unique(df$interval))
+
+df_nalist <- cbind(df)
+df_nalist$steps <- as.numeric(is.na(df_nalist$steps))
+
+ggplot(df_nalist, aes(x = date, y = steps)) + geom_point()
+
+df_dist <- df %>% group_by(interval)
+
+ggplot(df_dist, aes(x = interval, y = steps)) + 
+  geom_hex()
+
+ggplot(filter(df_dist, interval == 750), aes(x=steps)) +
+  geom_density()
+
+n <- nrow(df)
+
+df_imputed <- cbind(df)
+
+for (i in 1:n) {
+  if (is.na(df_imputed$steps[i])) {
+    interval_i <- df_imputed$interval[i]
+    mean_step <- filter(df_meanmedian, interval == interval_i)$mean
+    df_imputed$steps[i] <- mean_step
+  }
+}
+
+head(df_imputed)
+
+dfn_dist <- df_imputed %>% group_by(interval)
+
+ggplot(dfn_dist, aes(x = interval, y = steps)) + 
+  geom_hex()
+
+dfn_groupedbyday <- df_imputed %>% group_by(date) %>% summarise(steps_perday = sum(steps))
+head(df_groupedbyday)
+
+ggplot(dfn_groupedbyday, aes(x = steps_perday)) + geom_histogram(binwidth = 1000) + 
+  labs(title = "Histogram of Steps Taken per Day", x = "Number of Steps per Day", 
+       y = "Number of times in a day (counts)")
+
+mean(dfn_groupedbyday$steps_perday, na.rm = TRUE)
+median(dfn_groupedbyday$steps_perday, na.rm = TRUE)
+
+ggplot(df, aes(x = date, y = interval)) + geom_raster(aes(fill=steps))
+ggplot(df_imputed, aes(x = date, y = interval)) + geom_raster(aes(fill=steps))
+
+```
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r, echo=TRUE}
+
+dfn_split <- mutate(df_imputed, Weekday = isWeekday(date, wday = 1:5))
+
+dfns_avgbyint <- dfn_split %>% group_by(interval, Weekday) %>% 
+  summarise_at(vars(steps), funs(mean))
+
+labels <- c('FALSE'="Weekend", 'TRUE'="Weekday")
+
+ggplot(dfns_avgbyint, aes(x = interval, y = steps)) +
+  geom_line(aes(colour = Weekday)) + facet_grid(Weekday~., labeller = as_labeller(labels))
+
+```
